@@ -3,4 +3,3 @@ pandas
 plotly
 xlsxwriter
 st-gsheets-connection
-streamlit-currency-input
