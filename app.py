@@ -5,12 +5,22 @@ from datetime import date
 import os
 import io
 from streamlit_gsheets import GSheetsConnection
-from streamlit_currency_input import currency_input
 
-# 1. CONFIGURAÇÕES
+# --- CONFIGURAÇÕES DA PÁGINA ---
 st.set_page_config(page_title="Fluxo de Caixa Pro", layout="wide")
 
-# Conexão com Google Sheets
+# Lógica de formatação nativa
+def format_brl(val):
+    clean_val = "".join(filter(str.isdigit, val))
+    if not clean_val: return "R$ 0,00"
+    float_val = float(clean_val) / 100
+    return f"R$ {float_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+def to_float(val_str):
+    clean_val = "".join(filter(str.isdigit, val_str))
+    return float(clean_val) / 100 if clean_val else 0.0
+
+# --- CONEXÃO ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def carregar_dados():
@@ -29,65 +39,51 @@ def salvar_dados(df_novo):
         df_salvar['Data'] = df_salvar['Data'].astype(str)
         conn.update(worksheet="Página1", data=df_salvar)
         return True
-    except Exception as e:
-        st.error(f"Erro ao salvar: Verifique as permissões da planilha.")
+    except:
+        st.error("Erro de permissão na planilha!")
         return False
 
-# Inicialização
+# Inicialização de estados
 df = carregar_dados()
-categorias = ["Vendas", "Fornecedores", "Aluguel", "Impostos", "Salários", "Marketing", "Outros"]
+if 'v_mask' not in st.session_state: st.session_state.v_mask = "R$ 0,00"
 
-# 2. CABEÇALHO
-col_logo, col_titulo = st.columns([1, 10])
-with col_logo:
-    if os.path.exists("logo_ma.png"):
-        st.image("logo_ma.png", width=80)
-    else:
-        st.title("📊")
-
-with col_titulo:
-    st.markdown("<h1 style='margin-top: 10px;'>Gestão de Fluxo de Caixa</h1>", unsafe_allow_html=True)
+# --- CABEÇALHO ---
+c_logo, c_titulo = st.columns([1, 10])
+with c_logo:
+    if os.path.exists("logo_ma.png"): st.image("logo_ma.png", width=80)
+    else: st.title("📊")
+with c_titulo:
+    st.markdown("<h1 style='margin:0;'>Gestão de Fluxo de Caixa</h1>", unsafe_allow_html=True)
 
 st.divider()
 
-# 3. NOVO LANÇAMENTO
+# --- LANÇAMENTO ---
 with st.expander("➕ Novo Lançamento", expanded=True):
     col1, col2, col3 = st.columns(3)
-    
     data_mov = col1.date_input("Data", date.today(), format="DD/MM/YYYY")
     tipo = col2.selectbox("Tipo", ["Receita", "Despesa"])
     
-    # Máscara em tempo real
-    with col3:
-        valor = currency_input(
-            "Valor (R$)", 
-            key="valor_caixa", 
-            currency="R$ ", 
-            decimal_separator=",", 
-            thousands_separator=".",
-            initial_value=0.0
-        )
-    
+    # Máscara Nativa (Mais estável para o servidor)
+    val_input = col3.text_input("Valor (R$)", value=st.session_state.v_mask)
+    if val_input != st.session_state.v_mask:
+        st.session_state.v_mask = format_brl(val_input)
+        st.rerun()
+
     c4, c5 = st.columns(2)
-    categoria = c4.selectbox("Categoria", categorias)
-    descricao = c5.text_input("Descrição / Detalhes")
+    cat = c4.selectbox("Categoria", ["Vendas", "Fornecedores", "Aluguel", "Impostos", "Salários", "Outros"])
+    desc = c5.text_input("Descrição")
     
     if st.button("✅ Salvar Lançamento", use_container_width=True):
-        if valor > 0:
-            novo_item = pd.DataFrame([{
-                'Data': data_mov, 'Tipo': tipo, 'Categoria': categoria,
-                'Valor': valor, 'Descrição': descricao
-            }])
-            df_final = pd.concat([df, novo_item], ignore_index=True)
-            if salvar_dados(df_final):
-                st.success("Salvo!")
+        final_val = to_float(st.session_state.v_mask)
+        if final_val > 0:
+            novo = pd.DataFrame([{'Data': data_mov, 'Tipo': tipo, 'Categoria': cat, 'Valor': final_val, 'Descrição': desc}])
+            if salvar_dados(pd.concat([df, novo], ignore_index=True)):
+                st.session_state.v_mask = "R$ 0,00"
+                st.success("Salvo com sucesso!")
                 st.rerun()
-        else:
-            st.error("Insira um valor.")
 
-# 4. DASHBOARD
+# --- DASHBOARD ---
 if not df.empty:
-    st.divider()
     t_rec = df[df['Tipo'] == 'Receita']['Valor'].sum()
     t_des = df[df['Tipo'] == 'Despesa']['Valor'].sum()
     
@@ -95,7 +91,6 @@ if not df.empty:
     m1.metric("Entradas", f"R$ {t_rec:,.2f}")
     m2.metric("Saídas", f"R$ {t_des:,.2f}")
     m3.metric("Saldo", f"R$ {t_rec - t_des:,.2f}")
-
-    # Lista de Lançamentos
-    st.subheader("📋 Últimos Lançamentos")
+    
+    st.subheader("📋 Movimentações")
     st.dataframe(df.sort_values('Data', ascending=False), use_container_width=True)
