@@ -5,23 +5,10 @@ from datetime import date
 import os
 import io
 from streamlit_gsheets import GSheetsConnection
+from streamlit_currency_input import currency_input  # Importação da biblioteca de máscara
 
 # 1. CONFIGURAÇÕES DA PÁGINA
 st.set_page_config(page_title="Fluxo de Caixa Pro", layout="wide")
-
-# --- FUNÇÕES DE FORMATAÇÃO DE MOEDA ---
-def format_currency(val):
-    """Formata string para padrão R$ 1.234,56 enquanto digita"""
-    clean_val = "".join(filter(str.isdigit, val))
-    if not clean_val:
-        return "R$ 0,00"
-    float_val = float(clean_val) / 100
-    return f"R$ {float_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-def parse_to_float(val_str):
-    """Converte a string da máscara para float para cálculos"""
-    clean_val = "".join(filter(str.isdigit, val_str))
-    return float(clean_val) / 100 if clean_val else 0.0
 
 # --- CONEXÃO COM GOOGLE SHEETS ---
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -46,12 +33,8 @@ def salvar_dados(df_novo):
         st.error(f"Erro de permissão: Certifique-se que a planilha está como EDITOR.")
         return False
 
-# Inicialização de dados e estados
 df = carregar_dados()
 categorias = ["Vendas", "Fornecedores", "Aluguel", "Impostos", "Salários", "Marketing", "Outros"]
-
-if 'valor_mask' not in st.session_state:
-    st.session_state.valor_mask = "R$ 0,00"
 
 # --- CABEÇALHO HARMÔNICO ---
 col_logo, col_titulo = st.columns([1, 10], gap="small") 
@@ -79,28 +62,31 @@ with st.expander("➕ Realizar Novo Lançamento", expanded=False):
     data_mov = col1.date_input("Data", date.today(), format="DD/MM/YYYY", key="new_date")
     tipo = col2.selectbox("Tipo", ["Receita", "Despesa"], key="new_type")
     
-    # CAMPO COM MÁSCARA FINANCEIRA
-    input_texto = col3.text_input("Valor (R$)", value=st.session_state.valor_mask)
-    if input_texto != st.session_state.valor_mask:
-        st.session_state.valor_mask = format_currency(input_texto)
-        st.rerun()
+    # CAMPO COM MÁSCARA FINANCEIRA EM TEMPO REAL
+    # Este componente já retorna o valor como float (ex: 1500.80)
+    valor = currency_input(
+        "Valor (R$)", 
+        key="new_val_mask", 
+        currency="R$ ", 
+        decimal_separator=",", 
+        thousands_separator=".",
+        initial_value=0.0
+    )
     
     col4, col5 = st.columns(2)
     categoria = col4.selectbox("Categoria", categorias, key="new_cat")
     descricao = col5.text_input("Descrição / Detalhes", key="new_desc")
     
     if st.button("✅ Salvar Lançamento", use_container_width=True):
-        valor_convertido = parse_to_float(st.session_state.valor_mask)
-        if valor_convertido > 0:
+        if valor > 0:
             novo_item = pd.DataFrame([{
                 'Data': data_mov, 'Tipo': tipo, 'Categoria': categoria,
-                'Valor': valor_convertido, 'Descrição': descricao
+                'Valor': valor, 'Descrição': descricao
             }])
             df_final = pd.concat([df, novo_item], ignore_index=True)
             
             if salvar_dados(df_final):
                 st.success("Lançamento salvo com sucesso!")
-                st.session_state.valor_mask = "R$ 0,00" # Reseta a máscara
                 st.rerun()
         else:
             st.error("Por favor, insira um valor válido.")
@@ -173,7 +159,6 @@ if 'editing' in st.session_state:
     with st.expander("📝 Editar Lançamento", expanded=True):
         with st.form("edit_form"):
             ed_dat = st.date_input("Data", df.loc[idx_e, 'Data'])
-            # Na edição mantemos number_input para facilitar ou você pode replicar a máscara aqui também
             ed_val = st.number_input("Valor", value=float(df.loc[idx_e, 'Valor']))
             ed_des = st.text_input("Descrição", value=df.loc[idx_e, 'Descrição'])
             if st.form_submit_button("Atualizar"):
