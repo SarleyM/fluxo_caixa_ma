@@ -1,20 +1,21 @@
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import plotly.express as px
 from datetime import date
 import os
 import io
+from streamlit_gsheets import GSheetsConnection
 
 # 1. CONFIGURAÇÕES DA PÁGINA
 st.set_page_config(page_title="Fluxo de Caixa Pro", layout="wide")
 
 # --- CONEXÃO COM GOOGLE SHEETS ---
+# Utilizamos a conexão padrão do Streamlit que você já configurou nas Secrets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def carregar_dados():
     try:
-        # worksheet="Página1" força a leitura da aba correta
+        # worksheet="Página1" deve ser o nome da aba na sua planilha
         df = conn.read(worksheet="Página1", ttl="0s")
         if df.empty:
             return pd.DataFrame(columns=['Data', 'Tipo', 'Categoria', 'Valor', 'Descrição'])
@@ -25,15 +26,15 @@ def carregar_dados():
 
 def salvar_dados(df_novo):
     try:
-        # Converter datas para string antes de salvar evita erros de serialização
-        df_para_salvar = df_novo.copy()
-        df_para_salvar['Data'] = df_para_salvar['Data'].astype(str)
+        # Importante: Converter datas para string para o Google Sheets aceitar sem erro
+        df_salvar = df_novo.copy()
+        df_salvar['Data'] = df_salvar['Data'].astype(str)
         
-        # O pulo do gato: especificar a worksheet evita o UnsupportedOperationError
-        conn.update(worksheet="Página1", data=df_para_salvar)
+        # O método 'update' precisa que a planilha esteja como EDITOR para o link público
+        conn.update(worksheet="Página1", data=df_salvar)
         return True
     except Exception as e:
-        st.error(f"Erro ao salvar: {e}")
+        st.error(f"Erro de permissão: Certifique-se que a planilha está como EDITOR para 'Qualquer pessoa com o link'.")
         return False
 
 df = carregar_dados()
@@ -70,7 +71,7 @@ with st.expander("➕ Realizar Novo Lançamento", expanded=False):
     categoria = col4.selectbox("Categoria", categorias, key="new_cat")
     descricao = col5.text_input("Descrição / Detalhes", key="new_desc")
     
-    if st.button("✅Salvar Lançamento", use_container_width=True):
+    if st.button("✅ Salvar Lançamento", use_container_width=True):
         if valor > 0:
             novo_item = pd.DataFrame([{
                 'Data': data_mov, 'Tipo': tipo, 'Categoria': categoria,
