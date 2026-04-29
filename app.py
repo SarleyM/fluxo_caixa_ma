@@ -7,32 +7,20 @@ import io
 from streamlit_gsheets import GSheetsConnection
 from streamlit_currency_input import currency_input
 
-# --- 1. CONFIGURAÇÕES DA PÁGINA ---
+# 1. CONFIGURAÇÕES
 st.set_page_config(page_title="Fluxo de Caixa Pro", layout="wide")
 
-# CSS para garantir que o cabeçalho fique alinhado
-st.markdown("""
-    <style>
-    .main-header {
-        display: flex;
-        align-items: center;
-        gap: 20px;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
-# --- 2. CONEXÃO COM GOOGLE SHEETS ---
+# Conexão com Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def carregar_dados():
     try:
-        # worksheet="Página1" deve ser o nome exato da aba na sua planilha
         df = conn.read(worksheet="Página1", ttl="0s")
         if df.empty:
             return pd.DataFrame(columns=['Data', 'Tipo', 'Categoria', 'Valor', 'Descrição'])
         df['Data'] = pd.to_datetime(df['Data']).dt.date
         return df
-    except Exception:
+    except:
         return pd.DataFrame(columns=['Data', 'Tipo', 'Categoria', 'Valor', 'Descrição'])
 
 def salvar_dados(df_novo):
@@ -42,53 +30,47 @@ def salvar_dados(df_novo):
         conn.update(worksheet="Página1", data=df_salvar)
         return True
     except Exception as e:
-        st.error("Erro de permissão: Certifique-se que a planilha está como EDITOR.")
+        st.error(f"Erro ao salvar: Verifique as permissões da planilha.")
         return False
 
 # Inicialização
 df = carregar_dados()
 categorias = ["Vendas", "Fornecedores", "Aluguel", "Impostos", "Salários", "Marketing", "Outros"]
 
-# --- 3. CABEÇALHO HARMÔNICO ---
-col_logo, col_titulo = st.columns([1, 10], gap="small") 
+# 2. CABEÇALHO
+col_logo, col_titulo = st.columns([1, 10])
 with col_logo:
     if os.path.exists("logo_ma.png"):
         st.image("logo_ma.png", width=80)
     else:
-        st.write("📊") 
+        st.title("📊")
 
 with col_titulo:
-    st.markdown(
-        """
-        <h1 style='font-size: 42px; margin: 0; line-height: 80px; color: white;'>
-            Gestão de Fluxo de Caixa
-        </h1>
-        """, 
-        unsafe_allow_html=True
-    )
+    st.markdown("<h1 style='margin-top: 10px;'>Gestão de Fluxo de Caixa</h1>", unsafe_allow_html=True)
 
 st.divider()
 
-# --- 4. NOVO LANÇAMENTO (COM MÁSCARA EM TEMPO REAL) ---
-with st.expander("➕ Realizar Novo Lançamento", expanded=False):
+# 3. NOVO LANÇAMENTO
+with st.expander("➕ Novo Lançamento", expanded=True):
     col1, col2, col3 = st.columns(3)
-    data_mov = col1.date_input("Data", date.today(), format="DD/MM/YYYY", key="new_date")
-    tipo = col2.selectbox("Tipo", ["Receita", "Despesa"], key="new_type")
     
+    data_mov = col1.date_input("Data", date.today(), format="DD/MM/YYYY")
+    tipo = col2.selectbox("Tipo", ["Receita", "Despesa"])
+    
+    # Máscara em tempo real
     with col3:
-        # Componente que faz a máscara R$ enquanto digita
         valor = currency_input(
             "Valor (R$)", 
-            key="new_val_mask", 
+            key="valor_caixa", 
             currency="R$ ", 
             decimal_separator=",", 
             thousands_separator=".",
             initial_value=0.0
         )
     
-    col4, col5 = st.columns(2)
-    categoria = col4.selectbox("Categoria", categorias, key="new_cat")
-    descricao = col5.text_input("Descrição / Detalhes", key="new_desc")
+    c4, c5 = st.columns(2)
+    categoria = c4.selectbox("Categoria", categorias)
+    descricao = c5.text_input("Descrição / Detalhes")
     
     if st.button("✅ Salvar Lançamento", use_container_width=True):
         if valor > 0:
@@ -97,78 +79,23 @@ with st.expander("➕ Realizar Novo Lançamento", expanded=False):
                 'Valor': valor, 'Descrição': descricao
             }])
             df_final = pd.concat([df, novo_item], ignore_index=True)
-            
             if salvar_dados(df_final):
-                st.success("Lançamento salvo com sucesso!")
+                st.success("Salvo!")
                 st.rerun()
         else:
-            st.error("Por favor, insira um valor válido.")
+            st.error("Insira um valor.")
 
-# --- 5. DASHBOARD E FILTROS ---
-st.sidebar.header("📅 Filtros")
-data_inicio = st.sidebar.date_input("Início", date.today().replace(day=1), format="DD/MM/YYYY")
-data_fim = st.sidebar.date_input("Fim", date.today(), format="DD/MM/YYYY")
-
-df_filtrado = df[(df['Data'] >= data_inicio) & (df['Data'] <= data_fim)]
-
-if not df_filtrado.empty:
-    total_rec = df_filtrado[df_filtrado['Tipo'] == 'Receita']['Valor'].sum()
-    total_des = df_filtrado[df_filtrado['Tipo'] == 'Despesa']['Valor'].sum()
-    saldo = total_rec - total_des
-
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Total Entradas", f"R$ {total_rec:,.2f}")
-    m2.metric("Total Saídas", f"R$ {total_des:,.2f}", delta=f"-{total_des:,.2f}", delta_color="inverse")
-    m3.metric("Saldo Atual", f"R$ {saldo:,.2f}")
-
-    c_esq, c_dir = st.columns([2, 1])
-    with c_esq:
-        fig_barra = px.bar(df_filtrado, x='Data', y='Valor', color='Tipo', barmode='group',
-                          title="Movimentação Diária", color_discrete_map={'Receita': '#2ECC71', 'Despesa': '#E74C3C'})
-        fig_barra.update_layout(template="plotly_dark")
-        st.plotly_chart(fig_barra, use_container_width=True)
-    with c_dir:
-        fig_rosca = px.pie(df_filtrado[df_filtrado['Tipo'] == 'Despesa'], values='Valor', names='Categoria', hole=0.5, title="Gastos")
-        fig_rosca.update_layout(template="plotly_dark")
-        st.plotly_chart(fig_rosca, use_container_width=True)
-
-# --- 6. GERENCIAMENTO (LISTAGEM) ---
-st.divider()
-st.subheader("📋 Gerenciar Movimentações")
-
-for idx, row in df.sort_index(ascending=False).iterrows():
-    r = st.columns([1.5, 1.5, 1.5, 1.5, 2.5, 1.5])
-    r[0].text(row['Data'].strftime('%d/%m/%Y'))
-    r[1].text(f"{'🟢' if row['Tipo'] == 'Receita' else '🔴'} {row['Tipo']}")
-    r[2].text(row['Categoria'])
-    r[3].text(f"R$ {row['Valor']:,.2f}")
-    r[4].text(str(row['Descrição'])[:30])
+# 4. DASHBOARD
+if not df.empty:
+    st.divider()
+    t_rec = df[df['Tipo'] == 'Receita']['Valor'].sum()
+    t_des = df[df['Tipo'] == 'Despesa']['Valor'].sum()
     
-    b_edit, b_del = r[5].columns(2)
-    if b_edit.button("✏️", key=f"e_{idx}"):
-        st.session_state['editing'] = idx
-        st.rerun()
-    if b_del.button("🗑️", key=f"d_{idx}"):
-        st.session_state['deleting'] = idx
-        st.rerun()
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Entradas", f"R$ {t_rec:,.2f}")
+    m2.metric("Saídas", f"R$ {t_des:,.2f}")
+    m3.metric("Saldo", f"R$ {t_rec - t_des:,.2f}")
 
-# Modais de Edição e Exclusão
-if 'editing' in st.session_state:
-    idx_e = st.session_state['editing']
-    with st.expander("📝 Editar Lançamento", expanded=True):
-        with st.form("edit_form"):
-            ed_dat = st.date_input("Data", df.loc[idx_e, 'Data'])
-            ed_val = st.number_input("Valor", value=float(df.loc[idx_e, 'Valor']))
-            ed_des = st.text_input("Descrição", value=df.loc[idx_e, 'Descrição'])
-            if st.form_submit_button("Atualizar"):
-                df.at[idx_e, 'Data'], df.at[idx_e, 'Valor'], df.at[idx_e, 'Descrição'] = ed_dat, ed_val, ed_des
-                if salvar_dados(df):
-                    del st.session_state['editing']; st.rerun()
-
-if 'deleting' in st.session_state:
-    idx_d = st.session_state['deleting']
-    st.error(f"Excluir: {df.loc[idx_d, 'Descrição']}?")
-    if st.button("Confirmar Exclusão"):
-        df_novo = df.drop(idx_d)
-        if salvar_dados(df_novo):
-            del st.session_state['deleting']; st.rerun()
+    # Lista de Lançamentos
+    st.subheader("📋 Últimos Lançamentos")
+    st.dataframe(df.sort_values('Data', ascending=False), use_container_width=True)
