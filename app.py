@@ -5,16 +5,28 @@ from datetime import date
 import os
 import io
 from streamlit_gsheets import GSheetsConnection
-from streamlit_currency_input import currency_input  # Importação da biblioteca de máscara
+from streamlit_currency_input import currency_input
 
-# 1. CONFIGURAÇÕES DA PÁGINA
+# --- 1. CONFIGURAÇÕES DA PÁGINA ---
 st.set_page_config(page_title="Fluxo de Caixa Pro", layout="wide")
 
-# --- CONEXÃO COM GOOGLE SHEETS ---
+# CSS para garantir que o cabeçalho fique alinhado
+st.markdown("""
+    <style>
+    .main-header {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- 2. CONEXÃO COM GOOGLE SHEETS ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def carregar_dados():
     try:
+        # worksheet="Página1" deve ser o nome exato da aba na sua planilha
         df = conn.read(worksheet="Página1", ttl="0s")
         if df.empty:
             return pd.DataFrame(columns=['Data', 'Tipo', 'Categoria', 'Valor', 'Descrição'])
@@ -30,13 +42,14 @@ def salvar_dados(df_novo):
         conn.update(worksheet="Página1", data=df_salvar)
         return True
     except Exception as e:
-        st.error(f"Erro de permissão: Certifique-se que a planilha está como EDITOR.")
+        st.error("Erro de permissão: Certifique-se que a planilha está como EDITOR.")
         return False
 
+# Inicialização
 df = carregar_dados()
 categorias = ["Vendas", "Fornecedores", "Aluguel", "Impostos", "Salários", "Marketing", "Outros"]
 
-# --- CABEÇALHO HARMÔNICO ---
+# --- 3. CABEÇALHO HARMÔNICO ---
 col_logo, col_titulo = st.columns([1, 10], gap="small") 
 with col_logo:
     if os.path.exists("logo_ma.png"):
@@ -47,7 +60,7 @@ with col_logo:
 with col_titulo:
     st.markdown(
         """
-        <h1 style='font-size: 42px; margin-top: 0px; margin-bottom: 0px; line-height: 80px; color: white;'>
+        <h1 style='font-size: 42px; margin: 0; line-height: 80px; color: white;'>
             Gestão de Fluxo de Caixa
         </h1>
         """, 
@@ -56,22 +69,22 @@ with col_titulo:
 
 st.divider()
 
-# --- NOVO LANÇAMENTO ---
+# --- 4. NOVO LANÇAMENTO (COM MÁSCARA EM TEMPO REAL) ---
 with st.expander("➕ Realizar Novo Lançamento", expanded=False):
     col1, col2, col3 = st.columns(3)
     data_mov = col1.date_input("Data", date.today(), format="DD/MM/YYYY", key="new_date")
     tipo = col2.selectbox("Tipo", ["Receita", "Despesa"], key="new_type")
     
-    # CAMPO COM MÁSCARA FINANCEIRA EM TEMPO REAL
-    # Este componente já retorna o valor como float (ex: 1500.80)
-    valor = currency_input(
-        "Valor (R$)", 
-        key="new_val_mask", 
-        currency="R$ ", 
-        decimal_separator=",", 
-        thousands_separator=".",
-        initial_value=0.0
-    )
+    with col3:
+        # Componente que faz a máscara R$ enquanto digita
+        valor = currency_input(
+            "Valor (R$)", 
+            key="new_val_mask", 
+            currency="R$ ", 
+            decimal_separator=",", 
+            thousands_separator=".",
+            initial_value=0.0
+        )
     
     col4, col5 = st.columns(2)
     categoria = col4.selectbox("Categoria", categorias, key="new_cat")
@@ -91,23 +104,13 @@ with st.expander("➕ Realizar Novo Lançamento", expanded=False):
         else:
             st.error("Por favor, insira um valor válido.")
 
-# --- SIDEBAR (FILTROS E EXPORTAÇÃO) ---
-st.sidebar.header("📅 Filtros de Relatório")
+# --- 5. DASHBOARD E FILTROS ---
+st.sidebar.header("📅 Filtros")
 data_inicio = st.sidebar.date_input("Início", date.today().replace(day=1), format="DD/MM/YYYY")
 data_fim = st.sidebar.date_input("Fim", date.today(), format="DD/MM/YYYY")
 
 df_filtrado = df[(df['Data'] >= data_inicio) & (df['Data'] <= data_fim)]
 
-st.sidebar.markdown("---")
-st.sidebar.header("📥 Exportar")
-
-if not df_filtrado.empty:
-    buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
-        df_filtrado.to_excel(writer, index=False, sheet_name='Financeiro')
-    st.sidebar.download_button("📊 Baixar em Excel", buf.getvalue(), f"fluxo_{date.today()}.xlsx", use_container_width=True)
-
-# --- DASHBOARD VISUAL ---
 if not df_filtrado.empty:
     total_rec = df_filtrado[df_filtrado['Tipo'] == 'Receita']['Valor'].sum()
     total_des = df_filtrado[df_filtrado['Tipo'] == 'Despesa']['Valor'].sum()
@@ -129,13 +132,9 @@ if not df_filtrado.empty:
         fig_rosca.update_layout(template="plotly_dark")
         st.plotly_chart(fig_rosca, use_container_width=True)
 
-# --- GERENCIAMENTO ---
+# --- 6. GERENCIAMENTO (LISTAGEM) ---
 st.divider()
 st.subheader("📋 Gerenciar Movimentações")
-
-col_h = st.columns([1.5, 1.5, 1.5, 1.5, 2.5, 1.5])
-col_h[0].markdown("**Data**"); col_h[1].markdown("**Tipo**"); col_h[2].markdown("**Categoria**")
-col_h[3].markdown("**Valor**"); col_h[4].markdown("**Descrição**"); col_h[5].markdown("**Ações**")
 
 for idx, row in df.sort_index(ascending=False).iterrows():
     r = st.columns([1.5, 1.5, 1.5, 1.5, 2.5, 1.5])
@@ -168,7 +167,7 @@ if 'editing' in st.session_state:
 
 if 'deleting' in st.session_state:
     idx_d = st.session_state['deleting']
-    st.error(f"Excluir permanentemente: {df.loc[idx_d, 'Descrição']}?")
+    st.error(f"Excluir: {df.loc[idx_d, 'Descrição']}?")
     if st.button("Confirmar Exclusão"):
         df_novo = df.drop(idx_d)
         if salvar_dados(df_novo):
