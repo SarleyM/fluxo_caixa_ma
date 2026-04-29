@@ -2,4 +2,4 @@ streamlit
 pandas
 plotly
 xlsxwriter
-gspread
+st-gsheets-connection
