@@ -14,19 +14,23 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 def carregar_dados():
     try:
-        # Passando o link diretamente aqui resolve o erro "Spreadsheet must be specified"
+        # Link limpo (sem o final ?usp=sharing)
         url = "https://docs.google.com/spreadsheets/d/1gRJBi_NUWmBsU5qPZWghO6tNOetCFVBfv0BGxNabtec"
+        
+        # Lê a primeira aba disponível por padrão
         df = conn.read(spreadsheet=url, ttl="0s")
         
         if df.empty:
             return pd.DataFrame(columns=['Data', 'Tipo', 'Categoria', 'Valor', 'Descrição'])
+            
+        # Garante que os nomes das colunas não tenham espaços extras
+        df.columns = [c.strip() for c in df.columns]
         
         df['Data'] = pd.to_datetime(df['Data']).dt.date
         return df
     except Exception as e:
         st.error(f"🚨 ERRO DE CONEXÃO DETECTADO: {e}")
         return pd.DataFrame(columns=['Data', 'Tipo', 'Categoria', 'Valor', 'Descrição'])
-        
 def salvar_dados(df_novo):
     try:
         # Converter datas para string antes de salvar evita erros de serialização
