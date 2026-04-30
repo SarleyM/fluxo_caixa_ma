@@ -14,14 +14,16 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 def carregar_dados():
     try:
-        # worksheet="Página1" força a leitura da aba correta
-        df = conn.read(worksheet="Página1", ttl="0s")
+        # Passando o link diretamente aqui resolve o erro "Spreadsheet must be specified"
+        url = "https://docs.google.com/spreadsheets/d/1gRJBi_NUWmBsU5qPZWghO6tNOetCFVBfv0BGxNabtec/edit?usp=sharing"
+        df = conn.read(spreadsheet=url, worksheet="Página1", ttl="0s")
+        
         if df.empty:
             return pd.DataFrame(columns=['Data', 'Tipo', 'Categoria', 'Valor', 'Descrição'])
+        
         df['Data'] = pd.to_datetime(df['Data']).dt.date
         return df
     except Exception as e:
-        # ADICIONE ESTA LINHA ABAIXO PARA VER O ERRO REAL:
         st.error(f"🚨 ERRO DE CONEXÃO DETECTADO: {e}")
         return pd.DataFrame(columns=['Data', 'Tipo', 'Categoria', 'Valor', 'Descrição'])
         
