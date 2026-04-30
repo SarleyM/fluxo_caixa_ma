@@ -16,7 +16,7 @@ def carregar_dados():
     try:
         # Passando o link diretamente aqui resolve o erro "Spreadsheet must be specified"
         url = "https://docs.google.com/spreadsheets/d/1gRJBi_NUWmBsU5qPZWghO6tNOetCFVBfv0BGxNabtec/edit?usp=sharing"
-        df = conn.read(spreadsheet=url, worksheet="Página1", ttl="0s")
+        df = conn.read(spreadsheet=url, worksheet="Dados", ttl="0s")
         
         if df.empty:
             return pd.DataFrame(columns=['Data', 'Tipo', 'Categoria', 'Valor', 'Descrição'])
