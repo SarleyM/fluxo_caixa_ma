@@ -9,45 +9,46 @@ import io
 # 1. CONFIGURAÇÕES DA PÁGINA
 st.set_page_config(page_title="Fluxo de Caixa", layout="wide")
 
-# --- CONEXÃO COM GOOGLE SHEETS ---
+# --- CONFIGURAÇÕES DE CONEXÃO ---
+# Substituímos a URL completa pelo ID para evitar erros de 400/404
+ID_PLANILHA = "1gRJBi_NUWmBsU5qPZWghO6tNOetCFVBfv0BGxNabtec"
+NOME_ABA = "Dados" # Certifique-se de que a aba no Google Sheets se chama 'Dados'
+
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def carregar_dados():
     try:
-        # Link limpo (sem o final ?usp=sharing)
-        url = "https://docs.google.com/spreadsheets/d/1gRJBi_NUWmBsU5qPZWghO6tNOetCFVBfv0BGxNabtec"
-        
-        # Lê a primeira aba disponível por padrão
-        df = conn.read(spreadsheet=url, ttl="0s")
-        
+        # worksheet="Dados" evita erro de codificação ASCII do 'á' em 'Página'
+        df = conn.read(spreadsheet=ID_PLANILHA, worksheet=NOME_ABA, ttl="0s")
         if df.empty:
             return pd.DataFrame(columns=['Data', 'Tipo', 'Categoria', 'Valor', 'Descrição'])
-            
-        # Garante que os nomes das colunas não tenham espaços extras
-        df.columns = [c.strip() for c in df.columns]
         
+        # Limpa espaços extras nos nomes das colunas e converte data
+        df.columns = [c.strip() for c in df.columns]
         df['Data'] = pd.to_datetime(df['Data']).dt.date
         return df
     except Exception as e:
         st.error(f"🚨 ERRO DE CONEXÃO DETECTADO: {e}")
         return pd.DataFrame(columns=['Data', 'Tipo', 'Categoria', 'Valor', 'Descrição'])
+
 def salvar_dados(df_novo):
     try:
-        # Converter datas para string antes de salvar evita erros de serialização
         df_para_salvar = df_novo.copy()
+        # Converter datas para string antes de salvar evita erros de serialização
         df_para_salvar['Data'] = df_para_salvar['Data'].astype(str)
         
-        # O pulo do gato: especificar a worksheet evita o UnsupportedOperationError
-        conn.update(worksheet="Página1", data=df_para_salvar)
+        # Atualiza usando o ID e o nome da aba correto
+        conn.update(spreadsheet=ID_PLANILHA, worksheet=NOME_ABA, data=df_para_salvar)
         return True
     except Exception as e:
         st.error(f"Erro ao salvar: {e}")
         return False
 
+# Carregamento inicial
 df = carregar_dados()
 categorias = ["Vendas", "Fornecedores", "Aluguel", "Impostos", "Salários", "Marketing", "Outros"]
 
-# --- CABEÇALHO HARMÔNICO ---
+# --- CABEÇALHO ---
 col_logo, col_titulo = st.columns([1, 10], gap="small") 
 with col_logo:
     if os.path.exists("logo_ma.png"):
@@ -59,7 +60,7 @@ with col_titulo:
     st.markdown(
         """
         <h1 style='font-size: 42px; margin-top: 0px; margin-bottom: 0px; line-height: 80px; color: white;'>
-         Fluxo de Caixa
+          Fluxo de Caixa
         </h1>
         """, 
         unsafe_allow_html=True
@@ -78,7 +79,7 @@ with st.expander("➕ Realizar Novo Lançamento", expanded=False):
     categoria = col4.selectbox("Categoria", categorias, key="new_cat")
     descricao = col5.text_input("Descrição / Detalhes", key="new_desc")
     
-    if st.button("✅Salvar Lançamento", use_container_width=True):
+    if st.button("✅ Salvar Lançamento", use_container_width=True):
         if valor > 0:
             novo_item = pd.DataFrame([{
                 'Data': data_mov, 'Tipo': tipo, 'Categoria': categoria,
@@ -92,24 +93,12 @@ with st.expander("➕ Realizar Novo Lançamento", expanded=False):
         else:
             st.error("Por favor, insira um valor válido.")
 
-# --- SIDEBAR (FILTROS E EXPORTAÇÃO) ---
+# --- SIDEBAR (FILTROS) ---
 st.sidebar.header("📅 Filtros de Relatório")
 data_inicio = st.sidebar.date_input("Início", date.today().replace(day=1), format="DD/MM/YYYY")
 data_fim = st.sidebar.date_input("Fim", date.today(), format="DD/MM/YYYY")
 
 df_filtrado = df[(df['Data'] >= data_inicio) & (df['Data'] <= data_fim)]
-
-st.sidebar.markdown("---")
-st.sidebar.header("📥 Exportar")
-
-if not df_filtrado.empty:
-    buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
-        df_filtrado.to_excel(writer, index=False, sheet_name='Financeiro')
-    st.sidebar.download_button("📊 Baixar em Excel", buf.getvalue(), f"fluxo_{date.today()}.xlsx", use_container_width=True)
-
-    html_data = f"<h2>Relatório</h2><p>Período: {data_inicio} a {data_fim}</p>{df_filtrado.to_html(index=False)}"
-    st.sidebar.download_button("📄 Baixar em PDF (HTML)", html_data, f"relatorio_{date.today()}.html", use_container_width=True)
 
 # --- DASHBOARD VISUAL ---
 if not df_filtrado.empty:
@@ -137,25 +126,28 @@ if not df_filtrado.empty:
 st.divider()
 st.subheader("📋 Gerenciar Movimentações")
 
-col_h = st.columns([1.5, 1.5, 1.5, 1.5, 2.5, 1.5])
-col_h[0].markdown("**Data**"); col_h[1].markdown("**Tipo**"); col_h[2].markdown("**Categoria**")
-col_h[3].markdown("**Valor**"); col_h[4].markdown("**Descrição**"); col_h[5].markdown("**Ações**")
+if not df.empty:
+    col_h = st.columns([1.5, 1.5, 1.5, 1.5, 2.5, 1.5])
+    col_h[0].markdown("**Data**"); col_h[1].markdown("**Tipo**"); col_h[2].markdown("**Categoria**")
+    col_h[3].markdown("**Valor**"); col_h[4].markdown("**Descrição**"); col_h[5].markdown("**Ações**")
 
-for idx, row in df.sort_index(ascending=False).iterrows():
-    r = st.columns([1.5, 1.5, 1.5, 1.5, 2.5, 1.5])
-    r[0].text(row['Data'].strftime('%d/%m/%Y'))
-    r[1].text(f"{'🟢' if row['Tipo'] == 'Receita' else '🔴'} {row['Tipo']}")
-    r[2].text(row['Categoria'])
-    r[3].text(f"R$ {row['Valor']:,.2f}")
-    r[4].text(str(row['Descrição'])[:30])
-    
-    b_edit, b_del = r[5].columns(2)
-    if b_edit.button("✏️", key=f"e_{idx}"):
-        st.session_state['editing'] = idx
-        st.rerun()
-    if b_del.button("🗑️", key=f"d_{idx}"):
-        st.session_state['deleting'] = idx
-        st.rerun()
+    for idx, row in df.sort_index(ascending=False).iterrows():
+        r = st.columns([1.5, 1.5, 1.5, 1.5, 2.5, 1.5])
+        r[0].text(row['Data'].strftime('%d/%m/%Y'))
+        r[1].text(f"{'🟢' if row['Tipo'] == 'Receita' else '🔴'} {row['Tipo']}")
+        r[2].text(row['Categoria'])
+        r[3].text(f"R$ {row['Valor']:,.2f}")
+        r[4].text(str(row['Descrição'])[:30])
+        
+        b_edit, b_del = r[5].columns(2)
+        if b_edit.button("✏️", key=f"e_{idx}"):
+            st.session_state['editing'] = idx
+            st.rerun()
+        if b_del.button("🗑️", key=f"d_{idx}"):
+            st.session_state['deleting'] = idx
+            st.rerun()
+else:
+    st.info("Nenhum dado encontrado na planilha.")
 
 # Modais de Edição e Exclusão
 if 'editing' in st.session_state:
@@ -172,7 +164,7 @@ if 'editing' in st.session_state:
 
 if 'deleting' in st.session_state:
     idx_d = st.session_state['deleting']
-    st.error(f"Excluir permanentemente: {df.loc[idx_d, 'Descrição']}?")
+    st.warning(f"Excluir permanentemente: {df.loc[idx_d, 'Descrição']}?")
     if st.button("Confirmar Exclusão"):
         df_novo = df.drop(idx_d)
         if salvar_dados(df_novo):
