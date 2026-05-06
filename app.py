@@ -47,7 +47,12 @@ with st.sidebar:
 
 # --- CABEÇALHO ---
 st.title("📊 Fluxo de Caixa")
-    with col_boneco:
+  col_logo, col_titulo, col_boneco = st.columns([1, 4, 1])
+
+with col_logo:
+    # Use sua logo oficial aqui
+    st.image("https://cdn-icons-png.flaticon.com/512/3135/3135715.png", width=90) 
+with col_boneco:
     # 👤 ÍCONE DO BONECO (Usuário)
     st.image("https://cdn-icons-png.flaticon.com/512/4140/4140048.png", width=70) 
 
