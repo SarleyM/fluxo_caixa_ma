@@ -1,171 +1,102 @@
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
 import pandas as pd
-import plotly.express as px
-from datetime import date
 import os
-import io
+from datetime import datetime
 
-# 1. CONFIGURAÇÕES DA PÁGINA
-st.set_page_config(page_title="Fluxo de Caixa", layout="wide")
-
-# --- CONFIGURAÇÕES DE CONEXÃO ---
-# Substituímos a URL completa pelo ID para evitar erros de 400/404
-ID_PLANILHA = "1gRJBi_NUWmBsU5qPZWghO6tNOetCFVBfv0BGxNabtec"
-NOME_ABA = "Dados" # Certifique-se de que a aba no Google Sheets se chama 'Dados'
-
-conn = st.connection("gsheets", type=GSheetsConnection)
+# --- CONFIGURAÇÕES DO ARQUIVO ---
+ARQUIVO_EXCEL = "fluxo_caixa_local.xlsx"
 
 def carregar_dados():
-    try:
-        # worksheet="Dados" evita erro de codificação ASCII do 'á' em 'Página'
-        df = conn.read(spreadsheet=ID_PLANILHA, worksheet=NOME_ABA, ttl="0s")
-        if df.empty:
-            return pd.DataFrame(columns=['Data', 'Tipo', 'Categoria', 'Valor', 'Descrição'])
-        
-        # Limpa espaços extras nos nomes das colunas e converte data
-        df.columns = [c.strip() for c in df.columns]
-        df['Data'] = pd.to_datetime(df['Data']).dt.date
-        return df
-    except Exception as e:
-        st.error(f"🚨 ERRO DE CONEXÃO DETECTADO: {e}")
-        return pd.DataFrame(columns=['Data', 'Tipo', 'Categoria', 'Valor', 'Descrição'])
-
-def salvar_dados(df_novo):
-    try:
-        df_para_salvar = df_novo.copy()
-        # Converter datas para string antes de salvar evita erros de serialização
-        df_para_salvar['Data'] = df_para_salvar['Data'].astype(str)
-        
-        # Atualiza usando o ID e o nome da aba correto
-        conn.update(spreadsheet=ID_PLANILHA, worksheet=NOME_ABA, data=df_para_salvar)
-        return True
-    except Exception as e:
-        st.error(f"Erro ao salvar: {e}")
-        return False
-
-# Carregamento inicial
-df = carregar_dados()
-categorias = ["Vendas", "Fornecedores", "Aluguel", "Impostos", "Salários", "Marketing", "Outros"]
-
-# --- CABEÇALHO ---
-col_logo, col_titulo = st.columns([1, 10], gap="small") 
-with col_logo:
-    if os.path.exists("logo_ma.png"):
-        st.image("logo_ma.png", width=80)
+    """Carrega o arquivo Excel ou cria um novo DataFrame se não existir."""
+    if os.path.exists(ARQUIVO_EXCEL):
+        try:
+            df = pd.read_excel(ARQUIVO_EXCEL)
+            # Garante que a coluna de Data esteja no formato correto
+            df['Data'] = pd.to_datetime(df['Data'])
+            return df
+        except Exception:
+            return criar_dataframe_vazio()
     else:
-        st.write("📊") 
+        return criar_dataframe_vazio()
 
-with col_titulo:
-    st.markdown(
-        """
-        <h1 style='font-size: 42px; margin-top: 0px; margin-bottom: 0px; line-height: 80px; color: white;'>
-          Fluxo de Caixa
-        </h1>
-        """, 
-        unsafe_allow_html=True
-    )
+def criar_dataframe_vazio():
+    return pd.DataFrame(columns=["Data", "Descrição", "Categoria", "Valor", "Tipo"])
 
-st.divider()
+def salvar_dados(df):
+    """Salva o DataFrame no arquivo Excel local."""
+    df.to_excel(ARQUIVO_EXCEL, index=False)
 
-# --- NOVO LANÇAMENTO ---
-with st.expander("➕ Realizar Novo Lançamento", expanded=False):
-    col1, col2, col3 = st.columns(3)
-    data_mov = col1.date_input("Data", date.today(), format="DD/MM/YYYY", key="new_date")
-    tipo = col2.selectbox("Tipo", ["Receita", "Despesa"], key="new_type")
-    valor = col3.number_input("Valor (R$)", min_value=0.0, step=0.01, key="new_val")
-    
-    col4, col5 = st.columns(2)
-    categoria = col4.selectbox("Categoria", categorias, key="new_cat")
-    descricao = col5.text_input("Descrição / Detalhes", key="new_desc")
-    
-    if st.button("✅ Salvar Lançamento", use_container_width=True):
-        if valor > 0:
-            novo_item = pd.DataFrame([{
-                'Data': data_mov, 'Tipo': tipo, 'Categoria': categoria,
-                'Valor': valor, 'Descrição': descricao
-            }])
-            df_final = pd.concat([df, novo_item], ignore_index=True)
-            
-            if salvar_dados(df_final):
-                st.success("Lançamento salvo com sucesso!")
-                st.rerun()
-        else:
-            st.error("Por favor, insira um valor válido.")
+# --- INTERFACE STREAMLIT ---
+st.set_page_config(page_title="Fluxo de Caixa Profissional", layout="wide")
 
-# --- SIDEBAR (FILTROS) ---
-st.sidebar.header("📅 Filtros de Relatório")
-data_inicio = st.sidebar.date_input("Início", date.today().replace(day=1), format="DD/MM/YYYY")
-data_fim = st.sidebar.date_input("Fim", date.today(), format="DD/MM/YYYY")
+st.title("📊 Gestão de Fluxo de Caixa")
+st.info("Os dados estão sendo salvos localmente no arquivo: " + ARQUIVO_EXCEL)
 
-df_filtrado = df[(df['Data'] >= data_inicio) & (df['Data'] <= data_fim)]
+# Inicialização dos dados
+if 'dados' not in st.session_state:
+    st.session_state.dados = carregar_dados()
 
-# --- DASHBOARD VISUAL ---
-if not df_filtrado.empty:
-    total_rec = df_filtrado[df_filtrado['Tipo'] == 'Receita']['Valor'].sum()
-    total_des = df_filtrado[df_filtrado['Tipo'] == 'Despesa']['Valor'].sum()
-    saldo = total_rec - total_des
-
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Total Entradas", f"R$ {total_rec:,.2f}")
-    m2.metric("Total Saídas", f"R$ {total_des:,.2f}", delta=f"-{total_des:,.2f}", delta_color="inverse")
-    m3.metric("Saldo Atual", f"R$ {saldo:,.2f}")
-
-    c_esq, c_dir = st.columns([2, 1])
-    with c_esq:
-        fig_barra = px.bar(df_filtrado, x='Data', y='Valor', color='Tipo', barmode='group',
-                          title="Movimentação Diária", color_discrete_map={'Receita': '#2ECC71', 'Despesa': '#E74C3C'})
-        fig_barra.update_layout(template="plotly_dark")
-        st.plotly_chart(fig_barra, use_container_width=True)
-    with c_dir:
-        fig_rosca = px.pie(df_filtrado[df_filtrado['Tipo'] == 'Despesa'], values='Valor', names='Categoria', hole=0.5, title="Gastos")
-        fig_rosca.update_layout(template="plotly_dark")
-        st.plotly_chart(fig_rosca, use_container_width=True)
-
-# --- GERENCIAMENTO ---
-st.divider()
-st.subheader("📋 Gerenciar Movimentações")
-
-if not df.empty:
-    col_h = st.columns([1.5, 1.5, 1.5, 1.5, 2.5, 1.5])
-    col_h[0].markdown("**Data**"); col_h[1].markdown("**Tipo**"); col_h[2].markdown("**Categoria**")
-    col_h[3].markdown("**Valor**"); col_h[4].markdown("**Descrição**"); col_h[5].markdown("**Ações**")
-
-    for idx, row in df.sort_index(ascending=False).iterrows():
-        r = st.columns([1.5, 1.5, 1.5, 1.5, 2.5, 1.5])
-        r[0].text(row['Data'].strftime('%d/%m/%Y'))
-        r[1].text(f"{'🟢' if row['Tipo'] == 'Receita' else '🔴'} {row['Tipo']}")
-        r[2].text(row['Categoria'])
-        r[3].text(f"R$ {row['Valor']:,.2f}")
-        r[4].text(str(row['Descrição'])[:30])
+# --- ÁREA DE LANÇAMENTO ---
+with st.sidebar:
+    st.header("Novo Lançamento")
+    with st.form("form_novo_registro", clear_on_submit=True):
+        data_sel = st.date_input("Data", datetime.now())
+        desc_sel = st.text_input("Descrição (Ex: Venda de produto)")
+        valor_sel = st.number_input("Valor (R$)", min_value=0.0, step=0.01)
+        tipo_sel = st.selectbox("Tipo", ["Receita", "Despesa"])
+        cat_sel = st.selectbox("Categoria", ["Vendas", "Serviços", "Aluguel", "Infraestrutura", "Marketing", "Outros"])
         
-        b_edit, b_del = r[5].columns(2)
-        if b_edit.button("✏️", key=f"e_{idx}"):
-            st.session_state['editing'] = idx
-            st.rerun()
-        if b_del.button("🗑️", key=f"d_{idx}"):
-            st.session_state['deleting'] = idx
+        btn_enviar = st.form_submit_button("Salvar Registro")
+        
+        if btn_enviar:
+            if desc_sel == "" or valor_sel == 0:
+                st.error("Preencha a descrição e o valor!")
+            else:
+                # Ajusta o sinal do valor conforme o tipo
+                valor_final = valor_sel if tipo_sel == "Receita" else -valor_sel
+                
+                novo_registro = {
+                    "Data": pd.to_datetime(data_sel),
+                    "Descrição": desc_sel,
+                    "Categoria": cat_sel,
+                    "Valor": valor_final,
+                    "Tipo": tipo_sel
+                }
+                
+                # Atualiza o DataFrame
+                st.session_state.dados = pd.concat([st.session_state.dados, pd.DataFrame([novo_registro])], ignore_index=True)
+                salvar_dados(st.session_state.dados)
+                st.success("Lançamento realizado!")
+                st.rerun()
+
+# --- DASHBOARD E VISUALIZAÇÃO ---
+df_exibicao = st.session_state.dados.copy()
+
+if not df_exibicao.empty:
+    # Métricas principais
+    receitas = df_exibicao[df_exibicao["Valor"] > 0]["Valor"].sum()
+    despesas = df_exibicao[df_exibicao["Valor"] < 0]["Valor"].sum()
+    saldo_total = receitas + despesas
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Receitas Totais", f"R$ {receitas:,.2f}")
+    col2.metric("Despesas Totais", f"R$ {abs(despesas):,.2f}", delta_color="inverse")
+    col3.metric("Saldo em Caixa", f"R$ {saldo_total:,.2f}")
+
+    st.divider()
+
+    # Tabela de registros
+    st.subheader("Histórico de Movimentações")
+    # Formatação para exibição
+    df_formatado = df_exibicao.sort_values(by="Data", ascending=False)
+    st.dataframe(df_formatado, use_container_width=True)
+
+    # Botão para limpar tudo (Cuidado!)
+    if st.button("Limpar Todos os Dados"):
+        if st.checkbox("Tenho certeza que desejo apagar o arquivo local"):
+            st.session_state.dados = criar_dataframe_vazio()
+            salvar_dados(st.session_state.dados)
+            st.warning("Dados apagados.")
             st.rerun()
 else:
-    st.info("Nenhum dado encontrado na planilha.")
-
-# Modais de Edição e Exclusão
-if 'editing' in st.session_state:
-    idx_e = st.session_state['editing']
-    with st.expander("📝 Editar Lançamento", expanded=True):
-        with st.form("edit_form"):
-            ed_dat = st.date_input("Data", df.loc[idx_e, 'Data'])
-            ed_val = st.number_input("Valor", value=float(df.loc[idx_e, 'Valor']))
-            ed_des = st.text_input("Descrição", value=df.loc[idx_e, 'Descrição'])
-            if st.form_submit_button("Atualizar"):
-                df.at[idx_e, 'Data'], df.at[idx_e, 'Valor'], df.at[idx_e, 'Descrição'] = ed_dat, ed_val, ed_des
-                if salvar_dados(df):
-                    del st.session_state['editing']; st.rerun()
-
-if 'deleting' in st.session_state:
-    idx_d = st.session_state['deleting']
-    st.warning(f"Excluir permanentemente: {df.loc[idx_d, 'Descrição']}?")
-    if st.button("Confirmar Exclusão"):
-        df_novo = df.drop(idx_d)
-        if salvar_dados(df_novo):
-            del st.session_state['deleting']; st.rerun()
+    st.write("Nenhum lançamento encontrado. Use o menu lateral para começar.")
