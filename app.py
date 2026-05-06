@@ -1,102 +1,94 @@
 import streamlit as st
 import pandas as pd
-import os
+import sqlite3
 from datetime import datetime
 
-# --- CONFIGURAÇÕES DO ARQUIVO ---
-ARQUIVO_EXCEL = "fluxo_caixa_local.xlsx"
+# --- CONFIGURAÇÃO DO BANCO DE DADOS ---
+DB_NAME = "fluxo_caixa.db"
+
+def init_db():
+    """Cria a tabela se ela não existir."""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS movimentacoes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            data TEXT,
+            descricao TEXT,
+            categoria TEXT,
+            valor REAL,
+            tipo TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
 
 def carregar_dados():
-    """Carrega o arquivo Excel ou cria um novo DataFrame se não existir."""
-    if os.path.exists(ARQUIVO_EXCEL):
-        try:
-            df = pd.read_excel(ARQUIVO_EXCEL)
-            # Garante que a coluna de Data esteja no formato correto
-            df['Data'] = pd.to_datetime(df['Data'])
-            return df
-        except Exception:
-            return criar_dataframe_vazio()
-    else:
-        return criar_dataframe_vazio()
+    conn = sqlite3.connect(DB_NAME)
+    df = pd.read_sql_query("SELECT * FROM movimentacoes", conn)
+    conn.close()
+    if not df.empty:
+        df['data'] = pd.to_datetime(df['data'])
+    return df
 
-def criar_dataframe_vazio():
-    return pd.DataFrame(columns=["Data", "Descrição", "Categoria", "Valor", "Tipo"])
-
-def salvar_dados(df):
-    """Salva o DataFrame no arquivo Excel local."""
-    df.to_excel(ARQUIVO_EXCEL, index=False)
+def salvar_registro(data, descricao, categoria, valor, tipo):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute('''
+        INSERT INTO movimentacoes (data, descricao, categoria, valor, tipo)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (data.strftime('%Y-%m-%d'), descricao, categoria, valor, tipo))
+    conn.commit()
+    conn.close()
 
 # --- INTERFACE STREAMLIT ---
-st.set_page_config(page_title="Fluxo de Caixa Profissional", layout="wide")
+st.set_page_config(page_title="Fluxo de Caixa - SQLite", layout="wide")
+init_db()
 
-st.title("📊 Gestão de Fluxo de Caixa")
-st.info("Os dados estão sendo salvos localmente no arquivo: " + ARQUIVO_EXCEL)
+st.title("📊 Gestão de Fluxo de Caixa (Banco de Dados)")
 
-# Inicialização dos dados
-if 'dados' not in st.session_state:
-    st.session_state.dados = carregar_dados()
-
-# --- ÁREA DE LANÇAMENTO ---
+# --- FORMULÁRIO LATERAL ---
 with st.sidebar:
     st.header("Novo Lançamento")
-    with st.form("form_novo_registro", clear_on_submit=True):
+    with st.form("form_registro", clear_on_submit=True):
         data_sel = st.date_input("Data", datetime.now())
-        desc_sel = st.text_input("Descrição (Ex: Venda de produto)")
+        desc_sel = st.text_input("Descrição")
         valor_sel = st.number_input("Valor (R$)", min_value=0.0, step=0.01)
         tipo_sel = st.selectbox("Tipo", ["Receita", "Despesa"])
-        cat_sel = st.selectbox("Categoria", ["Vendas", "Serviços", "Aluguel", "Infraestrutura", "Marketing", "Outros"])
+        cat_sel = st.selectbox("Categoria", ["Vendas", "Serviços", "Fixo", "Marketing", "Outros"])
         
-        btn_enviar = st.form_submit_button("Salvar Registro")
-        
-        if btn_enviar:
-            if desc_sel == "" or valor_sel == 0:
-                st.error("Preencha a descrição e o valor!")
-            else:
-                # Ajusta o sinal do valor conforme o tipo
+        if st.form_submit_button("Salvar no Banco"):
+            if desc_sel and valor_sel > 0:
                 valor_final = valor_sel if tipo_sel == "Receita" else -valor_sel
-                
-                novo_registro = {
-                    "Data": pd.to_datetime(data_sel),
-                    "Descrição": desc_sel,
-                    "Categoria": cat_sel,
-                    "Valor": valor_final,
-                    "Tipo": tipo_sel
-                }
-                
-                # Atualiza o DataFrame
-                st.session_state.dados = pd.concat([st.session_state.dados, pd.DataFrame([novo_registro])], ignore_index=True)
-                salvar_dados(st.session_state.dados)
-                st.success("Lançamento realizado!")
+                salvar_registro(data_sel, desc_sel, cat_sel, valor_final, tipo_sel)
+                st.success("Dados salvos!")
                 st.rerun()
+            else:
+                st.error("Preencha todos os campos corretamente.")
 
-# --- DASHBOARD E VISUALIZAÇÃO ---
-df_exibicao = st.session_state.dados.copy()
+# --- DASHBOARD ---
+df = carregar_dados()
 
-if not df_exibicao.empty:
-    # Métricas principais
-    receitas = df_exibicao[df_exibicao["Valor"] > 0]["Valor"].sum()
-    despesas = df_exibicao[df_exibicao["Valor"] < 0]["Valor"].sum()
-    saldo_total = receitas + despesas
+if not df.empty:
+    # Métricas
+    receitas = df[df["valor"] > 0]["valor"].sum()
+    despesas = df[df["valor"] < 0]["valor"].sum()
+    saldo = receitas + despesas
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Receitas Totais", f"R$ {receitas:,.2f}")
-    col2.metric("Despesas Totais", f"R$ {abs(despesas):,.2f}", delta_color="inverse")
-    col3.metric("Saldo em Caixa", f"R$ {saldo_total:,.2f}")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Receitas", f"R$ {receitas:,.2f}")
+    c2.metric("Despesas", f"R$ {abs(despesas):,.2f}")
+    c3.metric("Saldo", f"R$ {saldo:,.2f}")
 
     st.divider()
+    st.subheader("Histórico de Lançamentos")
+    st.dataframe(df.sort_values("data", ascending=False), use_container_width=True)
+    
+    # Exportar para Excel (opcional para o cliente)
+    csv = df.to_csv(index=False).encode('utf-8')
+    st.download_button("Baixar Backup (CSV)", csv, "fluxo_caixa_backup.csv", "text/csv")
 
-    # Tabela de registros
-    st.subheader("Histórico de Movimentações")
-    # Formatação para exibição
-    df_formatado = df_exibicao.sort_values(by="Data", ascending=False)
-    st.dataframe(df_formatado, use_container_width=True)
-
-    # Botão para limpar tudo (Cuidado!)
-    if st.button("Limpar Todos os Dados"):
-        if st.checkbox("Tenho certeza que desejo apagar o arquivo local"):
-            st.session_state.dados = criar_dataframe_vazio()
-            salvar_dados(st.session_state.dados)
-            st.warning("Dados apagados.")
-            st.rerun()
+else:
+    st.info("Aguardando o primeiro lançamento...")
 else:
     st.write("Nenhum lançamento encontrado. Use o menu lateral para começar.")
