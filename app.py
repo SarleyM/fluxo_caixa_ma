@@ -6,7 +6,7 @@ import plotly.express as px
 from datetime import datetime
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="Fluxo de Caixa", layout="wide", page_icon="💰")
+st.set_page_config(page_title="Gestão Financeira Pro", layout="wide", page_icon="💰")
 
 DB_NAME = "fluxo_caixa_v2.db"
 
@@ -29,26 +29,22 @@ init_db()
 
 # --- SIDEBAR (Filtros e Exportação) ---
 with st.sidebar:
-    st.title("Filtros")
+    st.title("⚙️ Filtros")
     data_inicio = st.date_input("Início", datetime(2026, 4, 1), format="DD/MM/YYYY")
     data_fim = st.date_input("Fim", datetime(2026, 5, 30), format="DD/MM/YYYY")
     
-    st.markdown("---")
+    st.divider()
+    st.markdown("### 📥 Exportação")
     df_base = carregar_dados()
     if not df_base.empty:
         output = io.BytesIO()
-        # IMPORTANTE: Use 'openpyxl' como alternativa se o xlsxwriter der erro
-        try:
-            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                df_export = df_base.copy()
-                df_export['data'] = pd.to_datetime(df_export['data']).dt.strftime('%d/%m/%Y')
-                df_export[['data', 'tipo', 'categoria', 'valor', 'descricao']].to_excel(writer, index=False)
-        except:
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df_base.to_excel(writer, index=False)
-        
-        st.download_button("📥 Baixar Excel", output.getvalue(), "fluxo_caixa.xlsx", 
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df_export = df_base.copy()
+            df_export['data'] = pd.to_datetime(df_export['data']).dt.strftime('%d/%m/%Y')
+            df_export[['data', 'tipo', 'categoria', 'valor', 'descricao']].to_excel(writer, index=False)
+        st.download_button("📊 Baixar Relatório XLSX", output.getvalue(), "fluxo_caixa.xlsx", 
                          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
 # --- CABEÇALHO ---
 st.title("📊 Dashboard de Fluxo de Caixa")
 
@@ -151,5 +147,3 @@ if not df_bruto.empty:
         st.warning("Nenhum dado para o período selecionado.")
 else:
     st.info("Aguardando o primeiro lançamento para gerar o dashboard.")
-else:
-    st.info("O banco de dados está vazio. Comece adicionando um novo lançamento!")
