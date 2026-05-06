@@ -6,7 +6,7 @@ from datetime import datetime
 
 # --- CONFIGURAÇÃO DA PÁGINA (Layout Largo e Tema Escuro Nativo) ---
 st.set_page_config(
-    page_title="Gestão de Fluxo de Caixa - BOIANI",
+    page_title="Fluxo de Caixa - BOIANI",
     layout="wide",
     initial_sidebar_state="expanded",
     page_icon="💰"
