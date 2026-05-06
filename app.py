@@ -8,7 +8,7 @@ from datetime import datetime
 # --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="Gestão Financeira BOIANI", layout="wide", page_icon="💰")
 
-# --- ESTILO PARA O BOTÃO VERDE ---
+# Estilo para o botão verde de salvar e layout escuro
 st.markdown("""
     <style>
     div.stButton > button:first-child {
@@ -20,6 +20,7 @@ st.markdown("""
         width: 100%;
         font-weight: bold;
     }
+    .stApp { background-color: #0E1117; color: white; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -42,16 +43,21 @@ def carregar_dados():
 
 init_db()
 
-# --- SIDEBAR (COM A CAIXINHA AZUL) ---
+# Controle de estado para edição
+if 'edit_item' not in st.session_state:
+    st.session_state.edit_item = None
+
+# --- SIDEBAR (COM A CAIXINHA AZUL CORRETA) ---
 with st.sidebar:
-    # 📦 A CAIXINHA AZUL QUE VOCÊ QUERIA
-    st.image("https://cdn-icons-png.flaticon.com/512/2850/2850343.png", width=100) 
-    st.title("Filtros de Relatório")
+    # 📦 ESTA É A CAIXA AZUL COM SETA DA SUA FOTO
+    st.image("https://img.icons8.com/external-flatart-icons-flat-flatarticons/256/external-box-delivery-and-logistics-flatart-icons-flat-flatarticons-1.png", width=120)
     
+    st.title("Filtros de Relatório")
     data_inicio = st.date_input("Início", datetime(2026, 4, 1), format="DD/MM/YYYY")
-    data_fim = st.date_input("Fim", datetime(2026, 4, 28), format="DD/MM/YYYY")
+    data_fim = st.date_input("Fim", datetime(2026, 5, 30), format="DD/MM/YYYY")
     
     st.divider()
+    st.markdown("### 📥 Exportar")
     df_base = carregar_dados()
     if not df_base.empty:
         output = io.BytesIO()
@@ -59,8 +65,8 @@ with st.sidebar:
             df_base.to_excel(writer, index=False)
         st.download_button("📊 Baixar Relatório XLSX", output.getvalue(), "fluxo_caixa.xlsx", use_container_width=True)
 
-# --- CABEÇALHO (COM O BONECO AZUL) ---
-col_logo, col_titulo, col_boneco = st.columns([1, 4, 1])
+# --- CABEÇALHO ---
+col_logo, col_titulo, col_perfil = st.columns([1, 4, 1])
 
 with col_logo:
     st.image("https://raw.githubusercontent.com/oseas-rezende/caixa_app/main/logo_boiani.png", width=100) 
@@ -68,67 +74,95 @@ with col_logo:
 with col_titulo:
     st.title("Gestão de Fluxo de Caixa BOIANI")
 
-with col_boneco:
-    # 🎧 ÍCONE DO BONECO AZUL (O "suporte" da imagem)
-    st.image("https://cdn-icons-png.flaticon.com/512/4140/4140048.png", width=80) 
+with col_perfil:
+    # 👤 ÍCONE DO PERFIL AZUL
+    st.image("https://cdn-icons-png.flaticon.com/512/3135/3135715.png", width=80) 
 
 st.markdown("---")
 
-# --- FORMULÁRIO ---
-with st.expander("➕ Realizar Novo Lançamento", expanded=True):
-    with st.form("form_registro", clear_on_submit=True):
+# --- FORMULÁRIO (DINÂMICO PARA NOVO OU EDITAR) ---
+if st.session_state.edit_item:
+    label = "📝 EDITAR LANÇAMENTO"
+    dados = st.session_state.edit_item
+else:
+    label = "➕ REALIZAR NOVO LANÇAMENTO"
+    dados = {"data": datetime.now(), "tipo": "Receita", "valor": 0.0, "categoria": "Vendas", "descricao": ""}
+
+with st.expander(label, expanded=True):
+    with st.form("form_financeiro", clear_on_submit=True):
         c1, c2, c3 = st.columns(3)
-        dt_reg = c1.date_input("Data", datetime.now(), format="DD/MM/YYYY")
-        tp_reg = c2.selectbox("Tipo", ["Receita", "Despesa"])
-        vl_reg = c3.number_input("Valor (R$)", min_value=0.0, step=0.01, format="%.2f")
+        dt = c1.date_input("Data", value=pd.to_datetime(dados['data']), format="DD/MM/YYYY")
+        tp = c2.selectbox("Tipo", ["Receita", "Despesa"], index=0 if dados['tipo'] == "Receita" else 1)
+        vl = c3.number_input("Valor (R$)", value=abs(float(dados['valor'])), min_value=0.0, format="%.2f")
         
         c4, c5 = st.columns([1, 2])
-        cat_reg = c4.selectbox("Categoria", ["Vendas", "Suprimentos", "Aluguel", "Pessoal", "Marketing", "Outros"])
-        desc_reg = c5.text_input("Descrição / Detalhes", placeholder="Ex: Pão caseiro")
+        categorias = ["Vendas", "Suprimentos", "Aluguel", "Pessoal", "Marketing", "Outros"]
+        cat = c4.selectbox("Categoria", categorias, index=categorias.index(dados['categoria']) if dados['categoria'] in categorias else 0)
+        desc = c5.text_input("Descrição / Detalhes", value=dados['descricao'])
         
-        if st.form_submit_button("✅ Salvar Lançamento"):
-            vl_final = vl_reg if tp_reg == "Receita" else -vl_reg
+        col_btn1, col_btn2 = st.columns([1, 0.2])
+        if col_btn1.form_submit_button("✅ SALVAR DADOS"):
+            v_final = vl if tp == "Receita" else -vl
             conn = sqlite3.connect(DB_NAME)
-            conn.execute("INSERT INTO movimentacoes (data, tipo, categoria, valor, descricao) VALUES (?,?,?,?,?)",
-                       (dt_reg.strftime('%Y-%m-%d'), tp_reg, cat_reg, vl_final, desc_reg))
+            if st.session_state.edit_item:
+                conn.execute("UPDATE movimentacoes SET data=?, tipo=?, categoria=?, valor=?, descricao=? WHERE id=?",
+                           (dt.strftime('%Y-%m-%d'), tp, cat, v_final, desc, dados['id']))
+                st.session_state.edit_item = None
+            else:
+                conn.execute("INSERT INTO movimentacoes (data, tipo, categoria, valor, descricao) VALUES (?,?,?,?,?)",
+                           (dt.strftime('%Y-%m-%d'), tp, cat, v_final, desc))
             conn.commit()
             conn.close()
             st.rerun()
+        
+        if st.session_state.edit_item:
+            if col_btn2.form_submit_button("CANCELAR"):
+                st.session_state.edit_item = None
+                st.rerun()
 
-# --- DASHBOARD ---
+# --- DASHBOARD E LISTAGEM ---
 df_total = carregar_dados()
 if not df_total.empty:
-    df = df_total[(df_total['data_dt'].dt.date >= data_inicio) & (df_total['data_dt'].dt.date <= data_fim)].copy()
+    df_f = df_total[(df_total['data_dt'].dt.date >= data_inicio) & (df_total['data_dt'].dt.date <= data_fim)].copy()
     
-    if not df.empty:
-        # Balões
-        rec = df[df["valor"] > 0]["valor"].sum()
-        desp = abs(df[df["valor"] < 0]["valor"].sum())
+    if not df_f.empty:
+        # Resumo
+        rec, desp = df_f[df_f["valor"] > 0]["valor"].sum(), abs(df_f[df_f["valor"] < 0]["valor"].sum())
         m1, m2, m3 = st.columns(3)
         m1.metric("Entradas", f"R$ {rec:,.2f}")
         m2.metric("Saídas", f"R$ {desp:,.2f}")
         m3.metric("Saldo Líquido", f"R$ {rec-desp:,.2f}")
 
-        # Gráficos
-        g1, g2 = st.columns(2)
-        with g1:
-            st.plotly_chart(px.pie(df[df['valor']<0], values=df[df['valor']<0]['valor'].abs(), names='categoria', hole=0.4, title="Gastos"), use_container_width=True)
-        with g2:
-            st.plotly_chart(px.bar(df.groupby('data_dt')['valor'].sum().reset_index(), x='data_dt', y='valor', title="Saldo Diário"), use_container_width=True)
+        # Tabela Detalhada com Botão Editar na Frente
+        st.markdown("### 📋 Histórico de Movimentações")
+        
+        # Cabeçalho manual da tabela
+        h1, h2, h3, h4, h5, h6 = st.columns([0.5, 1, 1, 1, 2, 1])
+        h1.write("**Ação**")
+        h2.write("**Data**")
+        h3.write("**Tipo**")
+        h4.write("**Valor**")
+        h5.write("**Descrição**")
+        h6.write("**Excluir**")
 
-        # Tabela com Ações
-        st.divider()
-        for _, row in df.iterrows():
-            r1, r2, r3, r4, r5, r6 = st.columns([1, 1, 1, 1, 2, 1])
-            r1.write(row['data_dt'].strftime('%d/%m/%Y'))
-            r2.write(row['tipo'])
-            r3.write(row['categoria'])
-            r4.write(f"R$ {abs(row['valor']):,.2f}")
+        for _, row in df_f.iterrows():
+            r1, r2, r3, r4, r5, r6 = st.columns([0.5, 1, 1, 1, 2, 1])
+            
+            # Botão EDITAR (Na frente como pedido)
+            if r1.button("✏️", key=f"edit_{row['id']}"):
+                st.session_state.edit_item = row
+                st.rerun()
+                
+            r2.write(row['data_dt'].strftime('%d/%m/%Y'))
+            r3.write(row['tipo'])
+            cor = "green" if row['valor'] > 0 else "red"
+            r4.markdown(f":{cor}[R$ {abs(row['valor']):,.2f}]")
             r5.write(row['descricao'])
             
-            # Botões
-            ed, lixo = r6.columns(2)
-            if ed.button("✏️", key=f"ed_{row['id']}"):
-                st.info("Para editar, use o formulário acima.")
-            if lixo.button("🗑️", key=f"del_{row['id']}"):
-                conn = sqlite3.connect(DB_NAME); conn.execute("DELETE FROM movimentacoes WHERE id=?", (row['id'],)); conn.commit(); conn.close(); st.rerun()
+            # Botão EXCLUIR
+            if r6.button("🗑️", key=f"del_{row['id']}"):
+                conn = sqlite3.connect(DB_NAME)
+                conn.execute("DELETE FROM movimentacoes WHERE id=?", (row['id'],))
+                conn.commit()
+                conn.close()
+                st.rerun()
