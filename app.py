@@ -5,7 +5,7 @@ import io
 from datetime import datetime
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="Fluxo de Caixa", layout="wide", page_icon="📊")
+st.set_page_config(page_title="Controle de Fluxo de Caixa", layout="wide", page_icon="📊")
 
 # --- BANCO DE DADOS (SQLITE) ---
 DB_NAME = "fluxo_caixa_v2.db"
