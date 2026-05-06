@@ -90,5 +90,3 @@ if not df.empty:
 
 else:
     st.info("Aguardando o primeiro lançamento...")
-else:
-    st.write("Nenhum lançamento encontrado. Use o menu lateral para começar.")
